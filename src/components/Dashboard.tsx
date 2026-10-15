@@ -39,7 +39,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState("全部任务");
   const [month, setMonth] = useState(() => new Date());
   const [activeNav, setActiveNav] = useState("学习总览");
@@ -67,7 +66,11 @@ export default function Dashboard() {
   const inProgress = tasks.filter(t => isInProgress(t.status)).length;
   const totalHours = tasks.reduce((sum, t) => sum + (t.totalHours || 0), 0);
   const todayHours = tasks.reduce((sum, t) => sum + (t.todayHours || 0), 0);
-  const percent = tasks.length ? Math.round(completed / tasks.length * 100) : 0;
+  // 总览进度优先使用 Notion「总进度」字段的平均值，避免与任务卡片上的进度条采用不同算法。
+  const notionProgressValues = tasks.map(t => t.progress).filter((v): v is number => v !== null && Number.isFinite(v));
+  const percent = notionProgressValues.length
+    ? Math.round(notionProgressValues.reduce((sum, value) => sum + value, 0) / notionProgressValues.length)
+    : (tasks.length ? Math.round(completed / tasks.length * 100) : 0);
   const filtered = tasks.filter(t => {
     if (filter === "待开始") return !isDone(t.status) && !isInProgress(t.status);
     if (filter === "进行中") return isInProgress(t.status);
@@ -86,22 +89,6 @@ export default function Dashboard() {
     });
   }, [month, eventDates]);
 
-  async function toggleTask(task: Task) {
-    const nextStatus = isDone(task.status) ? "进行中" : "已完成";
-    setBusy(task.id); setNotice(""); setError("");
-    try {
-      const res = await fetch(`/api/tasks/${task.id}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "更新失败");
-      setTasks(old => old.map(t => t.id === task.id ? { ...t, status: nextStatus } : t));
-      setNotice(nextStatus === "已完成" ? `已打卡：${task.name}` : `已将「${task.name}」设为进行中`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "更新失败");
-    } finally { setBusy(null); }
-  }
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">✦</div><div><div className="brand-name">STUDY SPACE</div><div className="brand-sub">IELTS · PERSONAL GROWTH</div></div></div>
@@ -116,7 +103,7 @@ export default function Dashboard() {
       {error && <div className="notice error">{error}<div style={{ marginTop: 7 }}><button className="text-button" onClick={() => void load()}>重新加载</button></div></div>}
       {notice && <div className="notice">{notice}</div>}
 
-      <section className="hero"><div className="hero-copy"><div className="hero-kicker">SMALL STEPS, BIG PROGRESS</div><h2>今天也为目标前进一步 ✨</h2><p>把学习拆成可完成的小任务。完成一次打卡，就是向更好的自己靠近一步。</p></div><div className="hero-stat"><strong>{percent}%</strong><span>任务完成率</span><div className="progress-line" style={{ background: "#ffffff44", marginTop: 11 }}><span style={{ width: `${percent}%`, background: "#fff" }}/></div></div></section>
+      <section className="hero"><div className="hero-copy"><div className="hero-kicker">SMALL STEPS, BIG PROGRESS</div><h2>今天也为目标前进一步 ✨</h2><p>把学习拆成可完成的小任务。完成一次打卡，就是向更好的自己靠近一步。</p></div><div className="hero-stat"><strong>{percent}%</strong><span>平均任务进度</span><div className="progress-line" style={{ background: "#ffffff44", marginTop: 11 }}><span style={{ width: `${percent}%`, background: "#fff" }}/></div></div></section>
 
       <div className="section-heading" id="stats"><div><h2>今日学习数据</h2><p>把每一次努力，都记录下来</p></div><button className="text-button" onClick={() => void load()}>↻ 刷新数据</button></div>
       <section className="stats-grid">
@@ -130,15 +117,15 @@ export default function Dashboard() {
         <section id="tasks">
           <div className="section-heading"><div><h2>📋 今日学习任务</h2><p>来自你的 Notion「学习看板」数据库</p></div></div>
           <div className="panel">
-            <div className="panel-title-row"><div><div className="panel-title">任务清单</div><div className="panel-note">点击任务名称打开对应的 Notion 页面；左侧方框用于学习打卡</div></div><span className="pill">{filtered.length} 项</span></div>
+            <div className="panel-title-row"><div><div className="panel-title">任务清单</div><div className="panel-note">点击任务名称打开对应的 Notion 页面；左侧方框仅显示任务状态，不可点击</div></div><span className="pill">{filtered.length} 项</span></div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 13 }}>{["全部任务", "待开始", "进行中", "已完成"].map(f => <button key={f} className="pill" onClick={() => setFilter(f)} style={filter === f ? { background: "#eeeaff", color: "#6758d9" } : {}}>{f}</button>)}</div>
             {loading ? <div className="loading">正在读取你的 Notion 学习看板…</div> : filtered.length === 0 ? <div className="empty">当前筛选条件下没有任务。</div> :
               <div className="task-list">{filtered.map(task => {
                 const done = isDone(task.status);
                 const statusClass = done ? "done" : isInProgress(task.status) ? "" : "notstarted";
-                const progress = task.progress ?? (done ? 100 : isInProgress(task.status) ? 35 : 0);
+                const progress = task.progress;
                 const taskUrl = getTaskNotionUrl(task);
-                return <div className="task-row" key={task.id}><button aria-label={done ? "取消完成" : "标记完成"} className={`task-check ${done ? "done" : ""}`} disabled={busy === task.id} onClick={() => void toggleTask(task)}>{done ? "✓" : ""}</button><div className="task-info"><div className="task-name">{taskUrl ? <a className="task-name-link" href={taskUrl} target="_blank" rel="noreferrer" title={`在 Notion 中打开：${task.name}`}>{task.name} <span aria-hidden="true">↗</span></a> : task.name}</div><div className="task-meta">{task.module || "英语学习"}{task.due ? ` · 截止 ${task.due}` : ""}</div><div className="progress-line"><span style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}/></div></div><span className={`status ${statusClass}`}>{busy === task.id ? "保存中" : task.status}</span>{task.todayHours !== null && <span className="task-hours">{task.todayHours}h</span>}</div>;
+                return <div className="task-row" key={task.id}><span aria-hidden="true" className={`task-check ${done ? "done" : ""}`}>{done ? "✓" : ""}</span><div className="task-info"><div className="task-name">{taskUrl ? <a className="task-name-link" href={taskUrl} target="_blank" rel="noreferrer" title={`在 Notion 中打开：${task.name}`}>{task.name} <span aria-hidden="true">↗</span></a> : task.name}</div><div className="task-meta">{task.module || "英语学习"}{task.due ? ` · 截止 ${task.due}` : ""}</div>{progress !== null ? <><div className="progress-line"><span style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}/></div><div className="task-progress-label">Notion 进度：{Math.round(Math.max(0, Math.min(100, progress)))}%</div></> : <div className="task-progress-label">Notion 尚未设置总进度</div>}</div><span className={`status ${statusClass}`}>{task.status}</span>{task.todayHours !== null && <span className="task-hours">{task.todayHours}h</span>}</div>;
               })}</div>}
           </div>
         </section>

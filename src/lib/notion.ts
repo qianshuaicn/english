@@ -72,9 +72,18 @@ function titleText(prop: NotionProperty | undefined): string {
 function selectText(prop: NotionProperty | undefined): string {
   return prop?.status?.name || prop?.select?.name || "";
 }
-function numberValue(prop: NotionProperty | undefined): number | null {
-  const v = prop?.number;
-  return typeof v === "number" ? v : null;
+function numberValue(prop: NotionProperty | undefined, definition?: NotionProperty): number | null {
+  if (!prop) return null;
+  // 支持普通数字属性，以及 Formula / Rollup 返回的数字。
+  let value: unknown = prop.number;
+  if (typeof value !== "number" && prop.type === "formula") value = prop.formula?.number;
+  if (typeof value !== "number" && prop.type === "rollup") value = prop.rollup?.number;
+  if (typeof value !== "number" && prop.type === "formula" && prop.formula?.type === "number") value = prop.formula.number;
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const format = definition?.number?.format || definition?.formula?.number_format || definition?.rollup?.number_format;
+  // Notion 的百分比数字属性通常以 0~1 保存，例如 0.75 表示 75%。
+  if (format === "percent" && value >= 0 && value <= 1) return value * 100;
+  return value;
 }
 function dateValue(prop: NotionProperty | undefined): string | null {
   return prop?.date?.start || null;
@@ -117,7 +126,7 @@ export async function getStudyTasks(): Promise<StudyTask[]> {
       id: row.id,
       name: titleText(props[taskKey]) || "未命名任务",
       status: selectText(props[statusKey]) || "未开始",
-      progress: numberValue(props[progressKey]) ?? (() => {
+      progress: numberValue(props[progressKey], p[progressKey]) ?? (() => {
         const raw = titleText(props[progressKey]) || "";
         const n = Number(raw.replace("%", ""));
         return Number.isFinite(n) && raw ? n : null;
