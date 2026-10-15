@@ -64,4 +64,4 @@ If a property in your actual Notion schema uses a different name or type, update
 
 ## 任务跳转到 Notion
 
-任务清单中的任务名称可点击打开对应 Notion 页面。「音标」任务使用用户提供的 Notion 深链接；其他任务默认使用学习看板数据库行返回的 `url`。如需为其他任务指定独立子页面，请在 `src/components/Dashboard.tsx` 的 `getTaskNotionUrl` 函数中添加对应名称与链接映射。页面不再单独显示笔记正文区域。
+任务清单中的所有任务名称统一使用学习看板数据库行返回的 `url`，包括「音标」任务，不做任何任务名称的特殊链接映射。若要打开具体笔记子页面，请在 Notion 学习看板中把对应任务行设置为该笔记页面/子页面的链接，或将任务行本身建为对应笔记页面。页面不再单独显示笔记正文区域。

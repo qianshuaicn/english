@@ -30,9 +30,8 @@ const monthLabel = (d: Date) => d.toLocaleDateString("zh-CN", { year: "numeric",
 const isDone = (status: string) => ["已完成", "完成", "Done", "Completed"].includes(status);
 const isInProgress = (status: string) => ["进行中", "In progress", "In Progress"].includes(status);
 
-// 音标页面使用你提供的 Notion 深链接；其他任务优先使用学习看板数据库行自身的 Notion 页面链接。
-const PHONETICS_NOTION_URL = "https://app.notion.com/p/qianshuaiblog/1cd7d4cca92a838eb1c581a0af55121c?p=3f97d4cca92a809d9498e286c0d391c9&pm=s";
-const getTaskNotionUrl = (task: Task) => task.name.trim().includes("音标") ? PHONETICS_NOTION_URL : task.url;
+// 所有任务统一使用 Notion「学习看板」数据库行自身的页面链接，不对“音标”等任务做特殊映射。
+const getTaskNotionUrl = (task: Task) => task.url;
 
 export default function Dashboard() {
   const [tasks, setTasks] = useState<Task[]>([]);
