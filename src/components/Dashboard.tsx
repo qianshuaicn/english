@@ -1,13 +1,13 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Task = {
   id: string; name: string; status: string; progress: number | null;
   todayHours: number | null; totalHours: number | null; due: string | null;
   module: string | null; url?: string;
 };
-type Event = { id: string; name: string; date: string | null; details: string };
+type Event = { id: string; name: string; date: string | null; details: string; content: string; url?: string };
 const modules = [
   { name: "听力练习", icon: "🎧", color: "#5595e9", hint: "精听 · 跟读 · 复盘" },
   { name: "阅读训练", icon: "📖", color: "#36a981", hint: "限时阅读 · 错题分析" },
@@ -30,6 +30,10 @@ const monthLabel = (d: Date) => d.toLocaleDateString("zh-CN", { year: "numeric",
 const isDone = (status: string) => ["已完成", "完成", "Done", "Completed"].includes(status);
 const isInProgress = (status: string) => ["进行中", "In progress", "In Progress"].includes(status);
 
+// 音标页面使用你提供的 Notion 深链接；其他任务优先使用学习看板数据库行自身的 Notion 页面链接。
+const PHONETICS_NOTION_URL = "https://app.notion.com/p/qianshuaiblog/1cd7d4cca92a838eb1c581a0af55121c?p=3f97d4cca92a809d9498e286c0d391c9&pm=s";
+const getTaskNotionUrl = (task: Task) => task.name.trim().includes("音标") ? PHONETICS_NOTION_URL : task.url;
+
 export default function Dashboard() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
@@ -39,9 +43,6 @@ export default function Dashboard() {
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState("全部任务");
   const [month, setMonth] = useState(() => new Date());
-  const [taskName, setTaskName] = useState("");
-  const [taskModule, setTaskModule] = useState("英语");
-  const [showAdd, setShowAdd] = useState(false);
   const [activeNav, setActiveNav] = useState("学习总览");
 
   const load = useCallback(async () => {
@@ -102,23 +103,6 @@ export default function Dashboard() {
       setError(e instanceof Error ? e.message : "更新失败");
     } finally { setBusy(null); }
   }
-  async function addTask(e: FormEvent) {
-    e.preventDefault();
-    if (!taskName.trim()) return;
-    setBusy("new"); setError(""); setNotice("");
-    try {
-      const res = await fetch("/api/tasks", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: taskName.trim(), module: taskModule }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "创建任务失败");
-      setTaskName(""); setShowAdd(false); setNotice("新任务已写入 Notion。"); await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "创建任务失败");
-    } finally { setBusy(null); }
-  }
-
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">✦</div><div><div className="brand-name">STUDY SPACE</div><div className="brand-sub">IELTS · PERSONAL GROWTH</div></div></div>
@@ -145,17 +129,17 @@ export default function Dashboard() {
 
       <div className="content-grid">
         <section id="tasks">
-          <div className="section-heading"><div><h2>📋 今日学习任务</h2><p>来自你的 Notion「学习看板」数据库</p></div><button className="text-button" onClick={() => setShowAdd(v => !v)}>{showAdd ? "收起" : "＋ 新建任务"}</button></div>
+          <div className="section-heading"><div><h2>📋 今日学习任务</h2><p>来自你的 Notion「学习看板」数据库</p></div></div>
           <div className="panel">
-            <div className="panel-title-row"><div><div className="panel-title">任务清单</div><div className="panel-note">点击左侧方框即可更新 Notion 中的任务状态</div></div><span className="pill">{filtered.length} 项</span></div>
+            <div className="panel-title-row"><div><div className="panel-title">任务清单</div><div className="panel-note">点击任务名称打开对应的 Notion 页面；左侧方框用于学习打卡</div></div><span className="pill">{filtered.length} 项</span></div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 13 }}>{["全部任务", "待开始", "进行中", "已完成"].map(f => <button key={f} className="pill" onClick={() => setFilter(f)} style={filter === f ? { background: "#eeeaff", color: "#6758d9" } : {}}>{f}</button>)}</div>
-            {showAdd && <form className="add-form" onSubmit={addTask}><input value={taskName} onChange={e => setTaskName(e.target.value)} placeholder="输入新学习任务名称" maxLength={120}/><select value={taskModule} onChange={e => setTaskModule(e.target.value)}><option>英语</option><option>听力练习</option><option>阅读训练</option><option>写作提升</option><option>口语准备</option><option>词汇积累</option><option>语法</option><option>复习</option></select><button className="primary-button" disabled={busy === "new"}>{busy === "new" ? "保存中…" : "添加任务"}</button></form>}
-            {loading ? <div className="loading">正在读取你的 Notion 学习看板…</div> : filtered.length === 0 ? <div className="empty">没有符合条件的任务。你可以新建一项学习任务。</div> :
+            {loading ? <div className="loading">正在读取你的 Notion 学习看板…</div> : filtered.length === 0 ? <div className="empty">当前筛选条件下没有任务。</div> :
               <div className="task-list">{filtered.map(task => {
                 const done = isDone(task.status);
                 const statusClass = done ? "done" : isInProgress(task.status) ? "" : "notstarted";
                 const progress = task.progress ?? (done ? 100 : isInProgress(task.status) ? 35 : 0);
-                return <div className="task-row" key={task.id}><button aria-label={done ? "取消完成" : "标记完成"} className={`task-check ${done ? "done" : ""}`} disabled={busy === task.id} onClick={() => void toggleTask(task)}>{done ? "✓" : ""}</button><div className="task-info"><div className="task-name">{task.name}</div><div className="task-meta">{task.module || "英语学习"}{task.due ? ` · 截止 ${task.due}` : ""}</div><div className="progress-line"><span style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}/></div></div><span className={`status ${statusClass}`}>{busy === task.id ? "保存中" : task.status}</span>{task.todayHours !== null && <span className="task-hours">{task.todayHours}h</span>}</div>;
+                const taskUrl = getTaskNotionUrl(task);
+                return <div className="task-row" key={task.id}><button aria-label={done ? "取消完成" : "标记完成"} className={`task-check ${done ? "done" : ""}`} disabled={busy === task.id} onClick={() => void toggleTask(task)}>{done ? "✓" : ""}</button><div className="task-info"><div className="task-name">{taskUrl ? <a className="task-name-link" href={taskUrl} target="_blank" rel="noreferrer" title={`在 Notion 中打开：${task.name}`}>{task.name} <span aria-hidden="true">↗</span></a> : task.name}</div><div className="task-meta">{task.module || "英语学习"}{task.due ? ` · 截止 ${task.due}` : ""}</div><div className="progress-line"><span style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}/></div></div><span className={`status ${statusClass}`}>{busy === task.id ? "保存中" : task.status}</span>{task.todayHours !== null && <span className="task-hours">{task.todayHours}h</span>}</div>;
               })}</div>}
           </div>
         </section>

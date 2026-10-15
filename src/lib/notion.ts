@@ -20,6 +20,8 @@ export type CalendarEvent = {
   name: string;
   date: string | null;
   details: string;
+  content: string;
+  url?: string;
 };
 
 function config() {
@@ -129,6 +131,42 @@ export async function getStudyTasks(): Promise<StudyTask[]> {
   });
 }
 
+function blockText(block: any): string {
+  const type = block?.type;
+  const data = type ? block[type] : null;
+  const rich = data?.rich_text || data?.title || [];
+  const text = rich.map((item: any) => item.plain_text || item.text?.content || "").join("");
+  if (type === "to_do") return `${data?.checked ? "☑" : "☐"} ${text}`;
+  if (type === "bulleted_list_item") return `• ${text}`;
+  if (type === "numbered_list_item") return `1. ${text}`;
+  if (type === "heading_1" || type === "heading_2" || type === "heading_3") return text ? `
+${text}
+` : "";
+  if (type === "code") return text ? `[代码] ${text}` : "";
+  if (type === "child_page") return data?.title || "";
+  return text;
+}
+
+async function getPageBody(pageId: string, depth = 0): Promise<string> {
+  if (depth > 2) return "";
+  const lines: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const path = `/blocks/${pageId}/children?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ""}`;
+    const result = await notionFetch<any>(path);
+    for (const block of result.results || []) {
+      const text = blockText(block);
+      if (text.trim()) lines.push(text.trim());
+      if (block.has_children && depth < 2) {
+        const nested = await getPageBody(block.id, depth + 1);
+        if (nested) lines.push(nested);
+      }
+    }
+    cursor = result.has_more ? result.next_cursor : undefined;
+  } while (cursor);
+  return lines.join("\n");
+}
+
 export async function getCalendarEvents(): Promise<CalendarEvent[]> {
   const sourceId = getSourceId("calendar");
   const schema = await getSchema(sourceId);
@@ -137,12 +175,15 @@ export async function getCalendarEvents(): Promise<CalendarEvent[]> {
   const dateKey = propertyName(p, "Date");
   const detailsKey = propertyName(p, "Detailed records");
   const rows = await querySource(sourceId);
-  return rows.map(row => ({
+  const events: CalendarEvent[] = rows.map(row => ({
     id: row.id,
     name: titleText(row.properties?.[eventKey]) || "学习记录",
     date: dateValue(row.properties?.[dateKey]),
     details: titleText(row.properties?.[detailsKey]),
+    content: "",
+    url: row.url,
   }));
+  return events;
 }
 
 export async function updateTaskStatus(pageId: string, statusName: string) {
@@ -160,22 +201,3 @@ export async function updateTaskStatus(pageId: string, statusName: string) {
   });
 }
 
-export async function createStudyTask(name: string, moduleName: string) {
-  const sourceId = getSourceId("study");
-  const schema = await getSchema(sourceId);
-  const p = schema.properties;
-  const taskKey = propertyName(p, "Task");
-  const statusKey = propertyName(p, "Status");
-  const moduleKey = propertyName(p, "Module");
-  const properties: Record<string, unknown> = {
-    [taskKey]: { title: [{ text: { content: name } }] },
-  };
-  const statusType = p[statusKey]?.type;
-  if (statusType === "status") properties[statusKey] = { status: { name: "未开始" } };
-  else if (statusType === "select") properties[statusKey] = { select: { name: "未开始" } };
-  if (moduleName && p[moduleKey]?.type === "select") properties[moduleKey] = { select: { name: moduleName } };
-  return notionFetch<any>("/pages", {
-    method: "POST",
-    body: JSON.stringify({ parent: { type: "data_source_id", data_source_id: sourceId }, properties }),
-  });
-}
